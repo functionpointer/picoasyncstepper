@@ -1,0 +1,34 @@
+{
+  "name": "picoasyncstepper",
+  "version": "${VERSION}",
+  "authors": [
+    {
+      "name": "functionpointer",
+      "email": "suspendfunction@gmail.com",
+      "url": "https://github.com/functionpointer",
+      "maintainer": true
+    }
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/functionpointer/picoasyncstepper"
+  },
+  "license": "GPL-3.0-or-later",
+  "sentence": "Asynchronous stepper motor library",
+  "paragraph": "Asynchronous stepper motor library",
+  "category": "Sensors",
+  "keywords": ["stepper", "rpi-pico", "raspberry-pico", "arduino-pico", "rp2040", "rpi-pico", "raspberry-pi-pico", "hardware-timer", "timing", "control", "motor"],
+  "url": "https://github.com/functionpointer/picoasyncstepper",
+  "architectures" : "*",
+  "frameworks": ["Arduino"],
+  "platforms": ["raspberrypi"],
+  "export": {
+    "exclude":
+    [
+      "library.json.template",
+      ".github/",
+      "__pycache__"
+    ]
+  },
+  "dependencies": []
+}
