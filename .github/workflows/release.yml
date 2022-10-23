@@ -17,10 +17,11 @@ jobs:
         run: |
           TAG=${{ github.event.release.tag_name }}
           echo "VERSION=${TAG#v}" >> $GITHUB_ENV
+      - name: verify version number
+        run: |
+          echo "${{ env.VERSION }}"
       - name: prepare manifest
         uses: danielr1996/envsubst-action@1.1.0
-        env:
-          VERSION: ${{ env.version }}
         with:
           input: library.json.template
           output: library.json
