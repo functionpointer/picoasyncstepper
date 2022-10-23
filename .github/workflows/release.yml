@@ -13,10 +13,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
+      - name: prepare version number
+        run: |
+          TAG=${{ github.event.release.tag_name }}
+          echo "VERSION=${TAG#v}" >> $GITHUB_ENV
       - name: prepare manifest
         uses: danielr1996/envsubst-action@1.1.0
         env:
-          VERSION: ${{ github.event.release.tag_name }}
+          VERSION: ${{ env.version }}
         with:
           input: library.json.template
           output: library.json
@@ -40,7 +44,8 @@ jobs:
           python -m pip install --upgrade pip
           pip install --upgrade platformio
       - name: Run PlatformIO
-        run: pio package publish --non-interactive
+        run: |
+          pio package publish --non-interactive
         env:
           PLATFORMIO_AUTH_TOKEN: ${{ secrets.PLATFORMIO_AUTH_TOKEN }}
       
