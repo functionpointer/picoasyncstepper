@@ -1,7 +1,7 @@
 #pragma once
 #include<pico/stdlib.h>
 
-#define PIOASYNCSTEPPER_BUFFER_SIZE 256
+#define PIOASYNCSTEPPER_BUFFER_SIZE 32
 class PicoAsyncStepper {
   public:
     void begin(int pin_step, int pin_dir);
@@ -10,8 +10,12 @@ class PicoAsyncStepper {
     void setPinsInverted(bool directionInvert = false, bool stepInvert = false, bool enableInvert = false);
     bool isDirectionInverted();
 
+    /// @brief Stop motor. Will smoothly decelerate and keep a correct stepcount. Has some latency. See also estop()
     void stop();
+    /// @brief Emergency Stop. No deceleration, no latency. Will cause stepcount to be off in position mode. Unlike disableOutputs(), the motor stays energized.
+    void estop();
     void enableOutputs();
+    /// @brief Turn off the stepper driver using the enable pin. Turns off current to the motor. No deliberate deceleration, no latency. Step count is lost.
     void disableOutputs();
     void setPosition(long absolute);
     long currentPosition();  
@@ -42,7 +46,7 @@ class PicoAsyncStepper {
     double current_divisor=65535;
 
     enum OP_MODE {
-      OP_MODE_STOPPING, OP_MODE_INVERTING, OP_MODE_ACCELERATING
+      OP_MODE_STOPPING, OP_MODE_INVERTING, OP_MODE_ACCELERATING, OP_MODE_DECELERATING
     };
 
     enum TGT_TYPE {
@@ -51,6 +55,10 @@ class PicoAsyncStepper {
     TGT_TYPE tgt_type=TGT_TYPE_SPEED;
     long tgt_pos=0;
     float tgt_speed=0;
+    //target divider that we should stop trying to accel/decel once we reach it
+    //in speed mode this depends on tgt_speed, in posn mode this depends on maxSpeed
+    //we don't technically need to store this, but we do as performance optimization
+    float tgt_divider=1;
 
     int dma_chans_top[2] = {-1, -1};
     int dma_chans_dir[2] = {-1, -1};

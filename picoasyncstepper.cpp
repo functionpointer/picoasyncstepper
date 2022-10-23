@@ -73,11 +73,15 @@ void PicoAsyncStepper::setup_dma() {
   for(int i=0;i<2;i++) {
     if(dma_chans_top[i]==-1) {
       dma_chans_top[i] = dma_claim_unused_channel(true);
+    } else {
+      dma_channel_abort(dma_chans_top[i]);
     }
   }
   for(int i=0;i<2;i++) {
     if(dma_chans_dir[i]==-1) {
       dma_chans_dir[i] = dma_claim_unused_channel(true);
+    } else {
+      dma_channel_abort(dma_chans_dir[i]);
     }
   }
      
@@ -117,7 +121,7 @@ double prev_divisor(double current_divisor) {
 int steps_to_stop(float speed, float accel) {
   float time_to_stop = speed/accel;
   float distance_to_stop = speed*time_to_stop + 0.5*accel*time_to_stop*time_to_stop;
-  return distance_to_stop/2;
+  return distance_to_stop/1.5;
 }
 
 bool PicoAsyncStepper::correct_direction() {
@@ -134,21 +138,30 @@ void PicoAsyncStepper::fill_buffer_posn() {
   for(int i=0;i<PIOASYNCSTEPPER_BUFFER_SIZE;i++) {
     if(i%FAST_FACTOR!=0 && current_divisor<FAST_THRESHOLD) {
       dma_buffer_top[dma_running_channel][i]=dma_buffer_top[dma_running_channel][i-1];
+      dma_buffer_dir[dma_running_channel][i]=dma_buffer_dir[dma_running_channel][i-1];
       current_position+=running_reversed?-1:1;
       continue;
     }
-    if(steps_to_go==0 && current_divisor>=65534) {
+    if(steps_to_go==0 && current_divisor>=SLOWEST_DIVIDER-40) {//stop when we have reached the destination and we are decently slow
       dma_buffer_top[dma_running_channel][i]=OFF_DIVIDER;
+      dma_buffer_dir[dma_running_channel][i]=running_reversed?this->dir_on_value:this->dir_off_value;
+      current_divisor=SLOWEST_DIVIDER;
     } else {
       int braking_point = steps_to_stop(this->absSpeed(), this->accel);
       float next = 0;
-      bool accel = false;
-      if(this->correct_direction() && braking_point<steps_to_go) {
-        double speed = FREQUENCY/current_divisor;
-        double diff = this->max_speed - this->absSpeed();
-        accel = diff>0;
-      } 
-      if(accel) {
+      OP_MODE opmode = OP_MODE_STOPPING;
+      if(!this->correct_direction()) {
+        opmode = OP_MODE_INVERTING;
+      } else {
+        if(braking_point>=steps_to_go) {
+          opmode = OP_MODE_STOPPING;
+        } else {
+          double speed = FREQUENCY/current_divisor;
+          double diff = this->max_speed - this->absSpeed();
+          opmode = diff>0?OP_MODE_ACCELERATING:OP_MODE_DECELERATING;
+        }
+      }
+      if(opmode == OP_MODE_ACCELERATING) {
         next = next_divisor(current_divisor);
       } else {
         next = prev_divisor(current_divisor);
@@ -159,12 +172,27 @@ void PicoAsyncStepper::fill_buffer_posn() {
         new_freq /= FAST_FACTOR;
       }
       difference /= new_freq;//by dividing by the number of times this happens per second i.e. frequency
-      current_divisor+=difference*this->accel;
-      if(current_divisor>=65536) {
-        current_divisor=65536-1;//don't stop!
+      next = current_divisor+difference*this->accel;
+      //check if we have reached our target speed
+      if(opmode == OP_MODE_ACCELERATING && current_divisor>=tgt_divider && next<tgt_divider) {
+        current_divisor=tgt_divider;
+      } else if(opmode == OP_MODE_DECELERATING && current_divisor<=tgt_divider && next>tgt_divider){
+        current_divisor=tgt_divider;
+      } else {
+        current_divisor = next;
       }
-      current_position+=running_reversed?-1:1;
+      if(current_divisor<FASTEST_DIVIDER) {
+        current_divisor=FASTEST_DIVIDER;
+      }
+      if(current_divisor>=SLOWEST_DIVIDER) {
+        current_divisor=SLOWEST_DIVIDER;//don't actually stop, the steps_to_go will do that
+        if(opmode==OP_MODE_INVERTING) {
+          running_reversed^=true;
+        }
+      }
       dma_buffer_top[dma_running_channel][i]=round(current_divisor);
+      dma_buffer_dir[dma_running_channel][i]=running_reversed?this->dir_on_value:this->dir_off_value;
+      current_position+=running_reversed?-1:1;
     }
     steps_to_go = abs(tgt_pos - current_position);
   }
@@ -174,13 +202,11 @@ void PicoAsyncStepper::fill_buffer_speed() {
     for(int i=0;i<PIOASYNCSTEPPER_BUFFER_SIZE;i++) {
       OP_MODE opmode = OP_MODE_STOPPING;
       if(tgt_speed!=0) {
-        if(this->correct_direction()) {
-          double diff = abs(tgt_speed) - this->absSpeed();          
-          if(diff>0) {
-            opmode = OP_MODE_ACCELERATING;
-          }
-        } else {
+        if(!this->correct_direction()) {
           opmode = OP_MODE_INVERTING;
+        } else {
+          double diff = abs(tgt_speed) - this->absSpeed();
+          opmode = diff>0?OP_MODE_ACCELERATING:OP_MODE_DECELERATING;
         }
       }
       double next = -1;
@@ -194,14 +220,27 @@ void PicoAsyncStepper::fill_buffer_speed() {
       double difference = next-current_divisor;//spread this difference out to a whole second
       double new_freq = FREQUENCY / next;
       difference /= new_freq;//by dividing by the number of times this happens per second i.e. frequency
-      current_divisor+=difference*this->accel;
+      next = current_divisor+difference*this->accel;
+      //check if we have reached our target speed
+      if(opmode == OP_MODE_ACCELERATING && current_divisor>=tgt_divider && next<tgt_divider) {
+        current_divisor=tgt_divider;
+      } else if(opmode == OP_MODE_DECELERATING && current_divisor<=tgt_divider && next>tgt_divider){
+        current_divisor=tgt_divider;
+      } else {
+        current_divisor = next;
+      }
+      if(current_divisor<FASTEST_DIVIDER) {
+        current_divisor=FASTEST_DIVIDER;
+      }
       dma_buffer_top[dma_running_channel][i]=round(current_divisor);
       if(dma_buffer_top[dma_running_channel][i]>SLOWEST_DIVIDER) {
         if(opmode == OP_MODE_STOPPING) {
           dma_buffer_top[dma_running_channel][i]=OFF_DIVIDER;
         } else {
           dma_buffer_top[dma_running_channel][i]=SLOWEST_DIVIDER;
-          running_reversed^=true;
+          if(opmode == OP_MODE_INVERTING) {
+            running_reversed^=true;
+          }
         }
       }
       dma_buffer_dir[dma_running_channel][i]=running_reversed?this->dir_on_value:this->dir_off_value;
@@ -219,9 +258,13 @@ void PicoAsyncStepper::stop_pwm() {
 }
 
 void PicoAsyncStepper::start_pwm() {
-    pwm_set_enabled(slice_num, true);
-    pwm_is_running = true;
-    dma_running_channel = 0;
+  //initialize with 0 i.e. no pulses. this ensures the first pulse actually comes from dma data.
+  //only works because we also set the CC register all the time
+  pwm_set_gpio_level(pin_step, 0);
+  pwm_set_gpio_level(pin_dir, this->running_reversed?DIR_ON_GPIO_LEVEL:DIR_OFF_GPIO_LEVEL);
+  pwm_set_enabled(slice_num, true);
+  pwm_is_running = true;
+  dma_running_channel = 0;
 }
 
 //https://stackoverflow.com/questions/2922619/how-to-efficiently-compare-the-sign-of-two-floating-point-values-while-handling
@@ -233,25 +276,23 @@ void PicoAsyncStepper::run() {
   if(!pwm_is_running) {
     if(tgt_type==TGT_TYPE_SPEED) {
       if(abs(tgt_speed)>0) {
-        current_divisor=65535;
+        current_divisor=SLOWEST_DIVIDER;
         if(tgt_speed<0) {
           running_reversed = true;
         }
         fill_buffer_speed();
-        dma_running_channel=(dma_running_channel+1)%2;
-        fill_buffer_speed();
         start_pwm();
+        dma_running_channel=1;//get next call to run() to fill the other buffer
       }
     } else {
       if(tgt_pos != current_position) {
         if(!this->correct_direction()) {
           running_reversed ^= true;
-          gpio_put(pin_dir, running_reversed^this->reverse_dir);
         }
-        current_divisor=65535;
+        current_divisor=SLOWEST_DIVIDER;
         fill_buffer_posn();
-        dma_running_channel=(dma_running_channel+1)%2;
         start_pwm();
+        dma_running_channel=1;
       }
     }
   } else if(!dma_channel_is_busy(dma_chans_top[dma_running_channel])) {
@@ -302,6 +343,11 @@ void PicoAsyncStepper::stop() {
   tgt_type = TGT_TYPE_SPEED;
 }
 
+void PicoAsyncStepper::estop() {
+  this->stop();
+  this->stop_pwm();
+}
+
 void PicoAsyncStepper::enableOutputs() {
   if(pin_en>0) {
     gpio_put(pin_en^reverse_en, false);
@@ -323,6 +369,7 @@ long PicoAsyncStepper::currentPosition() {
 void PicoAsyncStepper::moveTo(long absolute) {
   tgt_type = TGT_TYPE_POSITION;
   tgt_pos = absolute;
+  tgt_divider = FREQUENCY/abs(maxSpeed());
 }
 
 void PicoAsyncStepper::setMaxSpeed(float speed) {
@@ -331,6 +378,9 @@ void PicoAsyncStepper::setMaxSpeed(float speed) {
     speed=max;
   }
   max_speed = speed;
+  if(tgt_type==TGT_TYPE_POSITION) {
+    tgt_divider = FREQUENCY/abs(maxSpeed());
+  }
 }
 float PicoAsyncStepper::maxSpeed() {
   return max_speed;
@@ -362,4 +412,5 @@ void PicoAsyncStepper::setSpeed(float speed) {
   }
   tgt_speed = speed;
   tgt_type=TGT_TYPE_SPEED;
+  tgt_divider = FREQUENCY/abs(speed);
 }
