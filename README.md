@@ -2,6 +2,7 @@
 
 Asynchronous stepper motor library
 Run stepper motors with quite loose timing constraints from your cpu!
+Published on PlatformIO: https://registry.platformio.org/libraries/functionpointer/picoasyncstepper
 
 Features:
 
