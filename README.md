@@ -14,7 +14,7 @@ Features:
 
 Supported microcontrollers:
 
-- RP2040
+- RP2040 (with [**Earle Philhower's arduino-pico core**](https://github.com/earlephilhower/arduino-pico))
 
 ## How it works
 

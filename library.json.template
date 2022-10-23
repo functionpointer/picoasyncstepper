@@ -27,8 +27,11 @@
     [
       "library.json.template",
       ".github/",
-      "__pycache__"
+      "__pycache__",
+      ".pio/",
+      ".vscode/"
     ]
   },
-  "dependencies": []
+  "dependencies": [],
+  "examples": "examples/*/main.cpp"
 }
