@@ -16,8 +16,17 @@ jobs:
 
     steps:
     - uses: actions/checkout@v3
-    - name: PlatformIO Run
-      uses: karniv00l/platformio-run-action@v1.1.1
+    - name: Setup Python
+      uses: actions/setup-python@v4.3.0
       with:
-        # Process specified environments (comma separated).
-        environments: speed_mode, position_mode
+        # Version range or exact version of Python or PyPy to use, using SemVer's version range syntax. Reads from .python-version if unset.
+        python-version: 3
+    - name: Install PlatformIO
+      run: |
+        pip install platformio
+    - name: speed_mode
+      run: |
+        pio run -e speed_mode
+    - name: position_mode
+      run: |
+        pio run -e position_mode
